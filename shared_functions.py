@@ -219,3 +219,44 @@ def load_css():
     }
     </style>
     """
+# ==================== RENDER FUNCTIONS ====================
+def render_2d_login_page():
+    """2D Agent login page"""
+    col1, col2, col3 = st.columns([1, 2, 1])
+    
+    with col2:
+        st.markdown('<h1 class="main-title">🎰 2D Betting System</h1>', unsafe_allow_html=True)
+        
+        with st.container():
+            st.markdown('<div class="info-box">', unsafe_allow_html=True)
+            st.markdown("### 🔐 Agent Login")
+            st.write("ကျေးဇူးပြု၍ Agent အကောင့်ဖြင့် ဝင်ရောက်ပါ။")
+            st.markdown('</div>', unsafe_allow_html=True)
+            
+            with st.form("2d_login_form"):
+                username = st.text_input("👤 **Agent Username**", 
+                                       placeholder="agent1")
+                
+                password = st.text_input("🔒 **Password**", 
+                                       type="password",
+                                       placeholder="agent123")
+                
+                login_button = st.form_submit_button("🚀 **Agent Login**", 
+                                                   use_container_width=True)
+                
+                if login_button:
+                    if username and password:
+                        authenticated, role = authenticate_user(username, password)
+                        if authenticated and role == 'agent':
+                            st.session_state.logged_in = True
+                            st.session_state.user_role = role
+                            st.session_state.current_user = username
+                            
+                            st.success(f"✅ **Agent** အနေနဲ့ ဝင်ရောက်ပြီးပါပြီ။")
+                            st.rerun()
+                        else:
+                            st.error("❌ Agent အကောင့်မှန်ကန်မှုမရှိပါ။")
+                    else:
+                        st.warning("⚠ ကျေးဇူးပြု၍ username နှင့် password ထည့်ပါ။")
+            
+            st.info("**Agent Credentials:** username: `agent1`, password: `agent123`")
