@@ -1,48 +1,11 @@
 # 2d_app.py
 import streamlit as st
 import pandas as pd
+import time
+from datetime import datetime
 from shared_functions import *
 
-# Initialize session state for 2D app
-if 'today_entries' not in st.session_state:
-    st.session_state.today_entries = {}
-if 'user_configs' not in st.session_state:
-    st.session_state.user_configs = {}
-if 'hidden_sections' not in st.session_state:
-    st.session_state.hidden_sections = {}
-if 'google_sheets' not in st.session_state:
-    st.session_state.google_sheets = {}
-if 'last_reset_date' not in st.session_state:
-    st.session_state.last_reset_date = get_myanmar_time().strftime('%Y-%m-%d')
-
-# Initialize main session state
-init_session_state()
-if not st.session_state.users_db:
-    init_users_database()
-
-# Page config
-st.set_page_config(
-    page_title="2D Betting System",
-    page_icon="🎰",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
-# Load CSS
-st.markdown(load_css(), unsafe_allow_html=True)
-
-# ==================== LOGIN PAGE ====================
-if not st.session_state.logged_in:
-    render_2d_login_page()
-else:
-    # Check if user is agent
-    if st.session_state.user_role != 'agent':
-        st.error("⚠️ ဤစနစ်ကို Agent များသာအသုံးပြုနိုင်ပါသည်။")
-        st.stop()
-    
-    render_2d_app()
-
-# ==================== 2D LOGIN PAGE ====================
+# ==================== LOGIN PAGE FUNCTION ====================
 def render_2d_login_page():
     """2D app login page"""
     col1, col2, col3 = st.columns([1, 2, 1])
@@ -94,7 +57,7 @@ def render_2d_login_page():
             
             st.info("**Agent Credentials:** username: `agent1`, password: `agent123`")
 
-# ==================== 2D APP ====================
+# ==================== 2D APP FUNCTION ====================
 def render_2d_app():
     """Main 2D application"""
     
@@ -168,6 +131,9 @@ def render_number_entry():
         return
     
     # Hide/show toggle
+    if 'hidden_sections' not in st.session_state:
+        st.session_state.hidden_sections = {}
+    
     col_hide, col_info = st.columns([1, 4])
     with col_hide:
         if st.button("🙈 Hide", key="hide_entry_form"):
@@ -275,10 +241,10 @@ def render_number_entry():
                 }
                 
                 # Add to today's entries
+                if st.session_state.current_user not in st.session_state.today_entries:
+                    st.session_state.today_entries[st.session_state.current_user] = []
                 st.session_state.today_entries[st.session_state.current_user].append(entry)
                 
-                # For demo, just show success message
-                # In real app, this would save to Google Sheets
                 st.success(f"✅ Entry submitted successfully! Amount: {amount:,} Ks")
                 log_activity("2D Entry", f"Added: {number} for {customer_name}")
                 st.balloons()
@@ -322,6 +288,9 @@ def render_today_entries():
     st.markdown('<h1 class="main-title">📋 Today\'s Betting Entries</h1>', unsafe_allow_html=True)
     
     # Hide/show toggle
+    if 'hidden_sections' not in st.session_state:
+        st.session_state.hidden_sections = {}
+    
     if st.button("🙈 Hide This Section", key="hide_entries"):
         st.session_state.hidden_sections['entries'] = True
         st.rerun()
@@ -562,6 +531,46 @@ def render_profile_settings():
                 st.rerun()
             else:
                 st.error(f"❌ {message}")
+
+# ==================== MAIN CODE ====================
+# Initialize session state for 2D app
+if 'today_entries' not in st.session_state:
+    st.session_state.today_entries = {}
+if 'user_configs' not in st.session_state:
+    st.session_state.user_configs = {}
+if 'hidden_sections' not in st.session_state:
+    st.session_state.hidden_sections = {}
+if 'google_sheets' not in st.session_state:
+    st.session_state.google_sheets = {}
+if 'last_reset_date' not in st.session_state:
+    st.session_state.last_reset_date = get_myanmar_time().strftime('%Y-%m-%d')
+
+# Initialize main session state
+init_session_state()
+if not st.session_state.users_db:
+    init_users_database()
+
+# Page config
+st.set_page_config(
+    page_title="2D Betting System",
+    page_icon="🎰",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Load CSS
+st.markdown(load_css(), unsafe_allow_html=True)
+
+# ==================== LOGIN CHECK ====================
+if not st.session_state.logged_in:
+    render_2d_login_page()
+else:
+    # Check if user is agent
+    if st.session_state.user_role != 'agent':
+        st.error("⚠️ ဤစနစ်ကို Agent များသာအသုံးပြုနိုင်ပါသည်။")
+        st.stop()
+    
+    render_2d_app()
 
 if __name__ == "__main__":
     pass
