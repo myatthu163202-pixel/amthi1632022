@@ -160,16 +160,37 @@ def save_data():
         }
         
         # Convert datetime objects to strings
-        for key in ['users_db', 'today_entries']:
-            if key in data:
-                data[key] = {
-                    k: {k2: (v2.strftime('%Y-%m-%d %H:%M:%S') if isinstance(v2, datetime) else v2) 
-                        for k2, v2 in v.items()} 
-                    for k, v in data[key].items()
-                }
+        data_to_save = {}
+        for key, value in data.items():
+            if key in ['users_db', 'today_entries']:
+                converted_dict = {}
+                for k, v in value.items():
+                    if isinstance(v, list):
+                        # Handle list of entries
+                        converted_list = []
+                        for item in v:
+                            if isinstance(item, dict):
+                                converted_item = {}
+                                for k2, v2 in item.items():
+                                    if isinstance(v2, datetime):
+                                        converted_item[k2] = v2.strftime('%Y-%m-%d %H:%M:%S')
+                                    else:
+                                        converted_item[k2] = v2
+                                converted_list.append(converted_item)
+                            else:
+                                converted_list.append(item)
+                        converted_dict[k] = converted_list
+                    elif isinstance(v, dict):
+                        converted_dict[k] = {k2: (v2.strftime('%Y-%m-%d %H:%M:%S') if isinstance(v2, datetime) else v2) 
+                                           for k2, v2 in v.items()}
+                    else:
+                        converted_dict[k] = v
+                data_to_save[key] = converted_dict
+            else:
+                data_to_save[key] = value
         
         with open(DATA_FILE, 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+            json.dump(data_to_save, f, ensure_ascii=False, indent=2)
         return True
     except Exception as e:
         st.error(f"ဒေတာသိမ်းရာတွင်အမှားအယွင်း: {str(e)}")
@@ -185,13 +206,48 @@ def load_data():
             # Restore datetime objects
             for key in ['users_db', 'today_entries']:
                 if key in data:
-                    for user_key, user_data in data[key].items():
-                        for field, value in user_data.items():
-                            if isinstance(value, str) and re.match(r'\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}', value):
-                                try:
-                                    data[key][user_key][field] = datetime.strptime(value, '%Y-%m-%d %H:%M:%S')
-                                except:
-                                    pass
+                    if key == 'today_entries':
+                        # Handle today_entries specially
+                        restored_entries = {}
+                        for user_key, entries_list in data[key].items():
+                            if isinstance(entries_list, list):
+                                restored_list = []
+                                for entry in entries_list:
+                                    if isinstance(entry, dict):
+                                        restored_entry = {}
+                                        for field, value in entry.items():
+                                            if isinstance(value, str) and re.match(r'\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}', value):
+                                                try:
+                                                    restored_entry[field] = datetime.strptime(value, '%Y-%m-%d %H:%M:%S')
+                                                except:
+                                                    restored_entry[field] = value
+                                            else:
+                                                restored_entry[field] = value
+                                        restored_list.append(restored_entry)
+                                    else:
+                                        restored_list.append(entry)
+                                restored_entries[user_key] = restored_list
+                            else:
+                                restored_entries[user_key] = entries_list
+                        data[key] = restored_entries
+                    else:
+                        # Handle users_db
+                        restored_dict = {}
+                        for user_key, user_data in data[key].items():
+                            if isinstance(user_data, dict):
+                                restored_user = {}
+                                for field, value in user_data.items():
+                                    if isinstance(value, str) and re.match(r'\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}', value):
+                                        try:
+                                            restored_user[field] = datetime.strptime(value, '%Y-%m-%d %H:%M:%S')
+                                        except:
+                                            restored_user[field] = value
+                                    else:
+                                        restored_user[field] = value
+                                restored_dict[user_key] = restored_user
+                            else:
+                                restored_dict[user_key] = user_data
+                        data[key] = restored_dict
             
             return data
         return None
@@ -213,7 +269,8 @@ def init_session_state():
         'hidden_sections': {},
         'selected_menu': '🏠 Dashboard',
         'editing_entry': None,
-        'show_add_agent': False
+        'show_add_agent': False,
+        'deleting_entry': None
     }
     
     for key, default_value in default_states.items():
@@ -231,8 +288,8 @@ def init_default_data():
             'email': 'admin@2dsystem.com',
             'phone': '',
             'address': '',
-            'created_at': datetime.now(),
-            'last_login': datetime.now(),
+            'created_at': datetime.now(MYANMAR_TZ),
+            'last_login': datetime.now(MYANMAR_TZ),
             'sheet_url': '',
             'daily_limit': 0,
             'status': 'active'
@@ -246,12 +303,19 @@ def init_default_data():
             'email': 'agent1@2dsystem.com',
             'phone': '09123456789',
             'address': 'ရန်ကုန်',
-            'created_at': datetime.now(),
-            'last_login': datetime.now(),
+            'created_at': datetime.now(MYANMAR_TZ),
+            'last_login': datetime.now(MYANMAR_TZ),
             'sheet_url': '',
             'daily_limit': 1000000,
             'commission_rate': 10,  # 10%
             'status': 'active'
+        }
+        
+        # Initialize empty entries for agent1
+        st.session_state.today_entries['agent1'] = []
+        st.session_state.user_configs['agent1'] = {
+            'sheet_url': '',
+            'script_url': ''
         }
         
         # Auto-save data
@@ -310,7 +374,7 @@ def calculate_amount(number_str: str, quantity: int) -> int:
 def log_activity(action: str, details: str = ""):
     """လုပ်ဆောင်ချက်မှတ်တမ်းထားရှိခြင်း"""
     try:
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        timestamp = format_myanmar_time()
         user = st.session_state.current_user if st.session_state.logged_in else "Guest"
         
         activity = {
@@ -349,15 +413,15 @@ def authenticate_user(username: str, password: str) -> Tuple[bool, Optional[str]
                     'email': '',
                     'phone': '',
                     'address': '',
-                    'created_at': datetime.now(),
-                    'last_login': datetime.now(),
+                    'created_at': datetime.now(MYANMAR_TZ),
+                    'last_login': datetime.now(MYANMAR_TZ),
                     'sheet_url': '',
                     'daily_limit': 0,
                     'status': 'active'
                 }
                 save_data()
             
-            st.session_state.users_db[ADMIN_USERNAME]['last_login'] = datetime.now()
+            st.session_state.users_db[ADMIN_USERNAME]['last_login'] = datetime.now(MYANMAR_TZ)
             log_activity("Login", f"Admin: {ADMIN_USERNAME}")
             return True, 'admin'
     
@@ -369,11 +433,11 @@ def authenticate_user(username: str, password: str) -> Tuple[bool, Optional[str]
                 if user_data.get('status', 'active') != 'active':
                     return False, "အကောင့်ပိတ်ထားသည်"
                 
-                user_data['last_login'] = datetime.now()
+                user_data['last_login'] = datetime.now(MYANMAR_TZ)
                 log_activity("Login", f"User: {stored_username} ({user_data['role']})")
                 return True, user_data['role']
     
-    return False, None
+    return False, "အသုံးပြုသူအမည် သို့မဟုတ် စကားဝှက် မှားယွင်းနေပါသည်"
 
 # ==================== USER MANAGEMENT ====================
 def add_new_user(username: str, password: str, role: str, name: str, 
@@ -405,8 +469,8 @@ def add_new_user(username: str, password: str, role: str, name: str,
             'email': email,
             'phone': phone,
             'address': address,
-            'created_at': datetime.now(),
-            'last_login': datetime.now(),
+            'created_at': datetime.now(MYANMAR_TZ),
+            'last_login': datetime.now(MYANMAR_TZ),
             'sheet_url': '',
             'daily_limit': 1000000 if role == 'agent' else 0,
             'commission_rate': 10 if role == 'agent' else 0,
@@ -2896,7 +2960,13 @@ def render_agent_today_entries():
                           or search_query in e.get('number', '')]
     
     if status_filter != "အားလုံး":
-        filtered_entries = [e for e in filtered_entries if e.get('status') == status_filter]
+        status_map = {
+            "Pending": "Pending",
+            "Won": "Won", 
+            "Lost": "Lost",
+            "Paid": "Paid"
+        }
+        filtered_entries = [e for e in filtered_entries if e.get('status') == status_map[status_filter]]
     
     st.divider()
     
@@ -2941,106 +3011,114 @@ def render_agent_today_entries():
                 
                 with col_actions:
                     # Edit button
-                    if st.button("✏️ ပြင်ဆင်ရန်", key=f"edit_{i}"):
-                        st.session_state.editing_entry = i
+                    if st.button("✏️ ပြင်ဆင်ရန်", key=f"edit_{entry['id']}"):
+                        st.session_state.editing_entry = entry['id']
                         st.rerun()
                     
                     # Delete button
-                    if st.button("🗑️ ဖျက်ရန်", key=f"delete_{i}"):
-                        st.session_state.deleting_entry = i
+                    if st.button("🗑️ ဖျက်ရန်", key=f"delete_{entry['id']}"):
+                        st.session_state.deleting_entry = entry['id']
                         st.rerun()
         
         # Edit form
-        if 'editing_entry' in st.session_state:
-            entry_index = st.session_state.editing_entry
-            if entry_index < len(filtered_entries):
-                # Find original index in today_entries
-                entry_id = filtered_entries[entry_index]['id']
-                original_index = next((i for i, e in enumerate(today_entries) if e['id'] == entry_id), None)
+        if 'editing_entry' in st.session_state and st.session_state.editing_entry:
+            entry_id_to_edit = st.session_state.editing_entry
+            entry_index = None
+            
+            # Find the entry to edit
+            for i, entry in enumerate(today_entries):
+                if entry['id'] == entry_id_to_edit:
+                    entry_index = i
+                    break
+            
+            if entry_index is not None:
+                entry = today_entries[entry_index]
                 
-                if original_index is not None:
-                    entry = today_entries[original_index]
-                    
-                    st.markdown("---")
-                    st.markdown("### ✏️ စာရင်းပြင်ဆင်ရန်")
-                    
-                    with st.form(f"edit_entry_form_{original_index}"):
-                        col1, col2 = st.columns(2)
-                        
-                        with col1:
-                            edited_customer = st.text_input("ဝယ်ယူသူအမည်", value=entry['customer'])
-                            edited_number = st.text_input("ဂဏန်း", value=entry['number'])
-                            edited_winning = st.text_input("ထီပေါက်ဂဏန်း", value=entry.get('winning_number', ''))
-                        
-                        with col2:
-                            edited_quantity = st.number_input("အကြိမ်အရေအတွက်", min_value=1, value=entry['quantity'])
-                            edited_status = st.selectbox(
-                                "အခြေအနေ",
-                                ["Pending", "Won", "Lost", "Paid"],
-                                index=["Pending", "Won", "Lost", "Paid"].index(entry['status'])
-                            )
-                            edited_note = st.text_area("မှတ်ချက်", value=entry.get('note', ''), height=80)
-                        
-                        col_save, col_cancel = st.columns(2)
-                        with col_save:
-                            if st.form_submit_button("💾 သိမ်းဆည်းရန်", use_container_width=True):
-                                # Update entry
-                                today_entries[original_index]['customer'] = edited_customer
-                                today_entries[original_index]['number'] = edited_number
-                                today_entries[original_index]['quantity'] = edited_quantity
-                                today_entries[original_index]['amount'] = calculate_amount(edited_number, edited_quantity)
-                                today_entries[original_index]['winning_number'] = edited_winning
-                                today_entries[original_index]['status'] = edited_status
-                                today_entries[original_index]['note'] = edited_note
-                                
-                                # Save data
-                                save_data()
-                                
-                                del st.session_state.editing_entry
-                                st.success("✅ စာရင်းပြင်ဆင်ပြီးပါပြီ။")
-                                log_activity("Edit Entry", f"Edited entry #{entry['id']}")
-                                time.sleep(1)
-                                st.rerun()
-                        
-                        with col_cancel:
-                            if st.form_submit_button("❌ ပယ်ဖျက်ရန်", use_container_width=True):
-                                del st.session_state.editing_entry
-                                st.rerun()
-        
-        # Delete confirmation
-        if 'deleting_entry' in st.session_state:
-            entry_index = st.session_state.deleting_entry
-            if entry_index < len(filtered_entries):
-                entry_id = filtered_entries[entry_index]['id']
-                original_index = next((i for i, e in enumerate(today_entries) if e['id'] == entry_id), None)
+                st.markdown("---")
+                st.markdown("### ✏️ စာရင်းပြင်ဆင်ရန်")
                 
-                if original_index is not None:
-                    st.warning(f"⚠️ ဤစာရင်းကို ဖျက်ရန်သေချာပါသလား?")
-                    st.markdown(f"**စာရင်း #{entry_id} - {filtered_entries[entry_index]['customer']} ({filtered_entries[entry_index]['number']})**")
+                with st.form(f"edit_entry_form_{entry['id']}"):
+                    col1, col2 = st.columns(2)
                     
-                    col_confirm, col_cancel = st.columns(2)
-                    with col_confirm:
-                        if st.button("✅ ဟုတ်ကဲ့၊ ဖျက်ပါ", use_container_width=True):
-                            # Remove entry
-                            today_entries.pop(original_index)
-                            
-                            # Reindex remaining entries
-                            for i, e in enumerate(today_entries):
-                                e['id'] = i + 1
+                    with col1:
+                        edited_customer = st.text_input("ဝယ်ယူသူအမည်", value=entry['customer'])
+                        edited_number = st.text_input("ဂဏန်း", value=entry['number'])
+                        edited_winning = st.text_input("ထီပေါက်ဂဏန်း", value=entry.get('winning_number', ''))
+                    
+                    with col2:
+                        edited_quantity = st.number_input("အကြိမ်အရေအတွက်", min_value=1, value=entry['quantity'])
+                        edited_status = st.selectbox(
+                            "အခြေအနေ",
+                            ["Pending", "Won", "Lost", "Paid"],
+                            index=["Pending", "Won", "Lost", "Paid"].index(entry['status'])
+                        )
+                        edited_note = st.text_area("မှတ်ချက်", value=entry.get('note', ''), height=80)
+                    
+                    col_save, col_cancel = st.columns(2)
+                    with col_save:
+                        if st.form_submit_button("💾 သိမ်းဆည်းရန်", use_container_width=True):
+                            # Update entry
+                            today_entries[entry_index]['customer'] = edited_customer
+                            today_entries[entry_index]['number'] = edited_number
+                            today_entries[entry_index]['quantity'] = edited_quantity
+                            today_entries[entry_index]['amount'] = calculate_amount(edited_number, edited_quantity)
+                            today_entries[entry_index]['winning_number'] = edited_winning
+                            today_entries[entry_index]['status'] = edited_status
+                            today_entries[entry_index]['note'] = edited_note
                             
                             # Save data
                             save_data()
                             
-                            del st.session_state.deleting_entry
-                            st.success("✅ စာရင်းဖျက်ပြီးပါပြီ။")
-                            log_activity("Delete Entry", f"Deleted entry #{entry_id}")
+                            del st.session_state.editing_entry
+                            st.success("✅ စာရင်းပြင်ဆင်ပြီးပါပြီ။")
+                            log_activity("Edit Entry", f"Edited entry #{entry['id']}")
                             time.sleep(1)
                             st.rerun()
                     
                     with col_cancel:
-                        if st.button("❌ မဖျက်တော့ပါ", use_container_width=True):
-                            del st.session_state.deleting_entry
+                        if st.form_submit_button("❌ ပယ်ဖျက်ရန်", use_container_width=True):
+                            del st.session_state.editing_entry
                             st.rerun()
+        
+        # Delete confirmation
+        if 'deleting_entry' in st.session_state and st.session_state.deleting_entry:
+            entry_id_to_delete = st.session_state.deleting_entry
+            entry_index = None
+            
+            # Find the entry to delete
+            for i, entry in enumerate(today_entries):
+                if entry['id'] == entry_id_to_delete:
+                    entry_index = i
+                    break
+            
+            if entry_index is not None:
+                entry_to_delete = today_entries[entry_index]
+                st.warning(f"⚠️ ဤစာရင်းကို ဖျက်ရန်သေချာပါသလား?")
+                st.markdown(f"**စာရင်း #{entry_to_delete['id']} - {entry_to_delete['customer']} ({entry_to_delete['number']})**")
+                
+                col_confirm, col_cancel = st.columns(2)
+                with col_confirm:
+                    if st.button("✅ ဟုတ်ကဲ့၊ ဖျက်ပါ", use_container_width=True):
+                        # Remove entry
+                        today_entries.pop(entry_index)
+                        
+                        # Reindex remaining entries
+                        for i, e in enumerate(today_entries):
+                            e['id'] = i + 1
+                        
+                        # Save data
+                        save_data()
+                        
+                        del st.session_state.deleting_entry
+                        st.success("✅ စာရင်းဖျက်ပြီးပါပြီ။")
+                        log_activity("Delete Entry", f"Deleted entry #{entry_id_to_delete}")
+                        time.sleep(1)
+                        st.rerun()
+                
+                with col_cancel:
+                    if st.button("❌ မဖျက်တော့ပါ", use_container_width=True):
+                        del st.session_state.deleting_entry
+                        st.rerun()
         
         st.divider()
         
@@ -3297,9 +3375,6 @@ def render_agent_settings():
 def main():
     """Main application entry point"""
     
-    # Load CSS
-    st.markdown(load_custom_css(), unsafe_allow_html=True)
-    
     # Initialize session state
     init_session_state()
     
@@ -3329,6 +3404,9 @@ def main():
             'About': '# 2D Betting System v1.0\nA complete betting system for 2D/3D lottery'
         }
     )
+    
+    # Load CSS
+    st.markdown(load_custom_css(), unsafe_allow_html=True)
     
     # Check authentication and render appropriate page
     if not st.session_state.logged_in:
